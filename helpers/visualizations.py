@@ -85,3 +85,22 @@ def plot_metrics(metrics_dict, attribute):
     # Display the plot
     plt.tight_layout()
     plt.show()
+
+
+def plot_attributes(dataset, attributes, target, num_rows, num_cols):
+    fontsize = 10
+    num_elements = len(attributes)
+
+    fig_width = 7 * num_cols
+    fig_height = 7 * num_rows
+
+    fig, ax = plt.subplots(num_rows, num_cols, figsize=(fig_width, fig_height), sharey=True,
+                           gridspec_kw={'hspace': 0.5})
+    ax = ax.flatten()
+    plt.subplots_adjust(hspace=1.5)
+    sns.set_style("whitegrid")
+    for i, attribute in enumerate(attributes):
+        g0 = sns.countplot(x=attribute, data=dataset, palette="hls",
+                           ax=ax[i], hue=target)  # order=dataset[attribute].value_counts().index)
+        g0.set_xlabel(attribute, fontsize=fontsize)
+        g0.set_ylabel("Count", fontsize=fontsize)

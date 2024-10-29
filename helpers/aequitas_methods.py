@@ -62,7 +62,7 @@ def plot_disparities(bdf, metrics, attribute, disparity_tolerance):
     ap.absolute(bdf, metrics, attribute, fairness_threshold=disparity_tolerance)
 
 
-def calc_fairness_report(xt, yt, y_pred, target_class, sensitive_attributes):
+def calc_fairness_report(xt, yt, y_pred, target_class, sensitive_attributes, display_disp=False):
     df_test = xt.copy()
     y_test_df = yt.to_frame()
     df_test['label_value'] = y_test_df[target_class]
@@ -95,6 +95,9 @@ def calc_fairness_report(xt, yt, y_pred, target_class, sensitive_attributes):
     3. Check if parity is met. By default, an attribute satisfies the parity if the metric value for the minority group lies between [0.8, 1.2]
     """
     gaf, fdf, overall_fairness = init_fairness_and_print_results(bdf)
+    if display_disp:
+        aqp = Plot()
+        fg = aqp.plot_fairness_group_all(fdf, ncols=5, metrics="all")
     display(gaf)
 
     return df_test_no_features

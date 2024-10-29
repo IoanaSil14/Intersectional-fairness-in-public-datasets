@@ -1,4 +1,4 @@
-from sklearn.preprocessing import LabelEncoder
+from sklearn.preprocessing import LabelEncoder, MinMaxScaler
 
 
 def get_categorical_attributes(df):
@@ -18,3 +18,15 @@ def encode_categorical_attributes(df_num, categorical_attributes):
         le_map = dict(zip(le.classes_, le.transform(le.classes_)))
         print('Attribute: ' + col)
         print(le_map)
+
+
+# normalize data, convert to numerical
+def encode_and_scale(data, target):
+    categorical_attributes = get_categorical_attributes(data)
+    df_numerical = data.copy()
+    encode_categorical_attributes(df_numerical, categorical_attributes)
+    scaler = MinMaxScaler()
+    for col in df_numerical.columns:
+        if col not in categorical_attributes and col != target:
+            df_numerical[col] = scaler.fit_transform(df_numerical[[col]])
+    return df_numerical

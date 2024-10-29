@@ -1,4 +1,5 @@
 import numpy as np
+import scipy
 from aif360.datasets import BinaryLabelDataset
 from aif360.metrics import ClassificationMetric
 from sklearn.model_selection import train_test_split, GridSearchCV
@@ -6,9 +7,33 @@ from catboost import CatBoostClassifier, Pool, metrics, cv
 from sklearn import tree, ensemble
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import accuracy_score, precision_recall_fscore_support, confusion_matrix, ConfusionMatrixDisplay, \
-    auc, roc_curve, RocCurveDisplay
+    auc, roc_curve, RocCurveDisplay, classification_report
 from sklearn.preprocessing import LabelEncoder
 import matplotlib.pyplot as plt
+from sklearn.model_selection import RandomizedSearchCV
+
+
+def split_and_train(data, attributes, target):
+    y = data.loc[:, target]
+    x = data.drop(target, axis=1)
+    x_train, x_test, y_train, y_test = train_test_split(x, y, test_size=0.20, random_state=0)
+    models = {"Catboost",
+              "LogisticRegression",
+              "RandomForest",
+              "DecisionTree"
+              }
+    y_predicted_dict = {}
+    metrics_dict = {}
+    for m in models:
+        model = choose_model(m, x_train, y_train)
+        y_predicted = evaluate_model(model, x_train, x_test, y_train, y_test)
+        attribute_metrics = calc_metrics(x_test=x_test, y_test=y_test, y_predicted=y_predicted, attributes=attributes,
+                                         target=target)
+        metrics_dict[m] = attribute_metrics
+        y_predicted_dict[m] = y_predicted
+        print(f"Classification report for model: {model} : \n {classification_report(y_test, y_predicted)}")
+        # plot_roc_curve(y_true=y_test, y_pred=y_predicted, model_name=m)
+    return x_test, y_test, y_predicted_dict, metrics_dict
 
 
 def create_train_val_test_data(df, target_column_name):
@@ -46,54 +71,56 @@ def catboost_classifier(x_train, y_train, categorical_features=None):
 
 
 def decision_tree_classifier(x_train, y_train):
-    param_grid = {'min_samples_split': [2, 3, 4, 5],
-                  'min_samples_leaf': [40, 50, 60],
-                  'max_depth': [3, 4, 13, 14, 15],
-                  'criterion': ['gini']
+    # tree_classifier = tree.DecisionTreeClassifier(min_samples_leaf=50, min_samples_split=2, max_depth=12,
+    #                                               criterion='gini', splitter='best', random_state=42)
+    #
+    # tree_classifier = tree_classifier.fit(x_train, y_train)
+    # return tree_classifier
+
+    param_grid = {'min_samples_split': [2,5,10],
+                  'min_samples_leaf': [1,2,5],
+                  'max_depth': [5,10,15,20],
                   }
 
-    #tree_classifier = tree.DecisionTreeClassifier(min_samples_leaf=40, min_samples_split=4, max_depth=5,
-    #                                             criterion='gini')
-    tree_classifier = tree.DecisionTreeClassifier()
-    grid_search = GridSearchCV(estimator=tree_classifier, param_grid=param_grid, cv=5, verbose=True)
-    grid_search = grid_search.fit(x_train, y_train)
-    best_model = grid_search.best_estimator_
+
+    tree_classifier = tree.DecisionTreeClassifier(criterion="gini")
+    clf = RandomizedSearchCV(lr, params)
+    random_search = clf.fit(x_train, y_train)
+    best_model = random_search.best_estimator_
     print(best_model)
-    #tree_classifier = tree_classifier.fit(x_train, y_train)
-    return best_model
+    return random_search
+
 
 
 def random_forest_classifier(x_train, y_train):
-    param_grid = {'min_samples_split': [2, 4],
-                  'min_samples_leaf': [14, 15],
-                  'max_depth': [14, 15],
-                  'criterion': ['gini'],
-                  'n_estimators': [500],
-                  'max_features': ['sqrt']
+    # forest_classifier = ensemble.RandomForestClassifier(min_samples_split=4, max_depth=10, min_samples_leaf=5,
+    #                                                     criterion='gini', n_estimators=500, max_features='sqrt',
+    #                                                     random_state=42)
+    #
+    # forest_classifier = forest_classifier.fit(x_train, y_train)
+    #
+    # return forest_classifier
+    param_grid = {'min_samples_split': [2,5,10],
+                  'min_samples_leaf': [1,2,5],
+                  'max_depth': [5,10,15,20],
                   }
-    forrest_classifier = ensemble.RandomForestClassifier( min_samples_split=4, max_depth=5,
-                                                         criterion='gini', n_estimators=500, max_features='sqrt')
-    # grid_search = GridSearchCV(estimator=forrest_classifier, param_grid=param_grid, cv=5, verbose=True)
-    # grid_search = grid_search.fit(x_train, y_train)
-    # best_model = grid_search.best_estimator_
-    # print(best_model)
-    forrest_classifier = forrest_classifier.fit(x_train, y_train)
 
-    return forrest_classifier
+    forest_classifier = ensemble.RandomForestClassifierc(criterion="Gini", max_features="sqrt", n_estimators=100)
+    clf = RandomizedSearchCV(lr, params)
+    random_search = clf.fit(x_train, y_train)
+    best_model = random_search.best_estimator_
+    print(best_model)
+    return random_search
 
 
 def logistic_regression(x_train, y_train):
-    lr = LogisticRegression(C=0.21, max_iter=200, solver='liblinear', random_state=42, penalty='l2', fit_intercept=True,
-                            tol=0.0001)
-    # params = {'C': [0.001, 0.01, 0.02, 0.2, 0.1, 1, 2, 10], 'penalty': ['l1', 'l2'], 'solver': ['liblinear'],
-    #           'max_iter': [100, 300, 500],
-    #           'random_state': [7]}
-    # grid_search = GridSearchCV(estimator=lr, param_grid=params, cv=5, verbose=True)
-    # grid_search = grid_search.fit(x_train, y_train)
-    # best_model = grid_search.best_estimator_
-    # print(best_model)
-    lr = lr.fit(x_train, y_train)
-    return lr
+    lr = LogisticRegression(max_iter=100, solver='liblinear', random_state=42, fit_intercept=True)
+    params = {'C': scipy.stats.uniform(loc=0, scale=4), 'penalty': ['l1', 'l2']}
+    clf = RandomizedSearchCV(lr, params)
+    random_search = clf.fit(x_train, y_train)
+    best_model = random_search.best_estimator_
+    print(best_model)
+    return random_search
 
 
 def evaluate_model(model, x_train, x_test, y_train, y_test):
@@ -199,14 +226,17 @@ def calc_metrics(x_test, y_test, y_predicted, attributes, target):
 
         c_metric = ClassificationMetric(test_data_bld, classified_ds_bld, privileged_groups=privileged_groups,
                                         unprivileged_groups=unprivileged_groups)
-        # normalized_dir = normalize_dir(c_metric.disparate_impact())
+        normalized_dir = normalize_dir(c_metric.disparate_impact())
 
         dir = c_metric.disparate_impact()
         spd = c_metric.statistical_parity_difference()
-        attribute_metric[attribute] = [dir, spd]
+
         print(f"Disparate Impact Ratio for {attribute}: %.3f" % dir)
+        if normalized_dir is not None:
+            print(f"Normalized Disparate Impact Ratio for {attribute}: %.3f" % normalized_dir)
         print(f"Statistical Parity Difference for {attribute}: %.3f" % spd)
-        # print(f"Normalized Disparate Impact Ratio for {attribute}: %.3f" % normalized_dir)
+        attribute_metric[attribute] = [dir, normalized_dir, spd]
+
         print("\n")
 
     return attribute_metric
