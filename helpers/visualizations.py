@@ -4,6 +4,7 @@ import pandas as pd
 import seaborn as sns
 from IPython import display
 from sklearn.metrics import classification_report
+from aequitas import Audit
 
 
 def plot_reports(y_predicted_dict, y_true):
@@ -104,3 +105,9 @@ def plot_attributes(dataset, attributes, target, num_rows, num_cols):
                            ax=ax[i], hue=target)  # order=dataset[attribute].value_counts().index)
         g0.set_xlabel(attribute, fontsize=fontsize)
         g0.set_ylabel("Count", fontsize=fontsize)
+
+
+def plot_audit(dataset, attributes):
+    audit = Audit(dataset[['score','label_value']+attributes])
+    summary = audit.summary_plot(["tpr","fpr","fnr","tnr","pprev"])
+    summary.show()

@@ -14,9 +14,9 @@ def initial_dataset_preprocess():
 
     df["age"] = df["age"].apply(categorize_age)
     df['race'] = np.where(df['race'] == 1, 1, 2)
-    df['marital status'] = df['marital status'].replace(3, 2)
-    df['marital status'] = df['marital status'].replace(4, 2)
-    df['marital status'] = df['marital status'].replace(5, 3)
+
+    group_mapping = {1: 1, 2: 2, 3: 2, 4: 2, 5: 3}
+    df['marital status'] = df['marital status'].replace(group_mapping)
 
     return df
 

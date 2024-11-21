@@ -17,23 +17,45 @@ def split_and_train(data, attributes, target):
     y = data.loc[:, target]
     x = data.drop(target, axis=1)
     x_train, x_test, y_train, y_test = train_test_split(x, y, test_size=0.20, random_state=0)
-    models = {"Catboost",
-              "LogisticRegression",
-              "RandomForest",
-              "DecisionTree"
+    models = {
+             # "Catboost",
+            "LogisticRegression",
+            # "RandomForest",
+              # "DecisionTree"
               }
     y_predicted_dict = {}
     metrics_dict = {}
     for m in models:
         model = choose_model(m, x_train, y_train)
         y_predicted = evaluate_model(model, x_train, x_test, y_train, y_test)
-        attribute_metrics = calc_metrics(x_test=x_test, y_test=y_test, y_predicted=y_predicted, attributes=attributes,
-                                         target=target)
-        metrics_dict[m] = attribute_metrics
+        # attribute_metrics = calc_metrics(x_test=x_test, y_test=y_test, y_predicted=y_predicted, attributes=attributes,
+        #                                  target=target)
+        # metrics_dict[m] = attribute_metrics
         y_predicted_dict[m] = y_predicted
+        # calc_avrg(metrics_dict[m])
         print(f"Classification report for model: {model} : \n {classification_report(y_test, y_predicted)}")
         # plot_roc_curve(y_true=y_test, y_pred=y_predicted, model_name=m)
+    del x_train, y_train # not needed, free up memory
     return x_test, y_test, y_predicted_dict, metrics_dict
+
+
+def calc_avrg(metrics_dict_model):
+    fnr_values = [values[4] for values in metrics_dict_model.values()]
+    average_fnr = sum(fnr_values) / len(fnr_values)
+
+    fpr_values = [values[5] for values in metrics_dict_model.values()]
+    average_fpr = sum(fpr_values) / len(fpr_values)
+
+    for_values = [values[6] for values in metrics_dict_model.values()]
+    average_for = sum(for_values) / len(for_values)
+
+    fdr_values = [values[7] for values in metrics_dict_model.values()]
+    average_fpr = sum(fdr_values) / len(fdr_values)
+
+    print(f"Average FNR: %.3f" % average_fnr)
+    print(f"Average FPR: %.3f" % average_fpr)
+    print(f"Average FOR: %.3f" % average_for)
+    print(f"Average FDR: %.3f" % average_fpr)
 
 
 def create_train_val_test_data(df, target_column_name):
@@ -71,57 +93,64 @@ def catboost_classifier(x_train, y_train, categorical_features=None):
 
 
 def decision_tree_classifier(x_train, y_train):
-    # tree_classifier = tree.DecisionTreeClassifier(min_samples_leaf=50, min_samples_split=2, max_depth=12,
-    #                                               criterion='gini', splitter='best', random_state=42)
+    tree_classifier = tree.DecisionTreeClassifier(min_samples_leaf=50, min_samples_split=2, max_depth=14,
+                                                  criterion='gini', random_state=7)
+
+    tree_classifier = tree_classifier.fit(x_train, y_train)
+    return tree_classifier
+
+    # param_grid = {  'max_depth': [5, 10, 15, 2],
+    #                 'min_samples_split': [2, 10, 20],
+    #                 'min_samples_leaf': [1, 5, 10],
+    #                 'max_features': ['sqrt', 'log2']
+    #               }
     #
-    # tree_classifier = tree_classifier.fit(x_train, y_train)
-    # return tree_classifier
-
-    param_grid = {'min_samples_split': [2,5,10],
-                  'min_samples_leaf': [1,2,5],
-                  'max_depth': [5,10,15,20],
-                  }
-
-
-    tree_classifier = tree.DecisionTreeClassifier(criterion="gini")
-    clf = RandomizedSearchCV(lr, params)
-    random_search = clf.fit(x_train, y_train)
-    best_model = random_search.best_estimator_
-    print(best_model)
-    return random_search
+    # tree_classifier = tree.DecisionTreeClassifier(criterion="gini")
+    # clf = GridSearchCV(tree_classifier, param_grid,cv=5)
+    # grid_search = clf.fit(x_train, y_train)
+    # print("Best parameters:", grid_search.best_params_)
+    # print("Best cross-validation accuracy:", grid_search.best_score_)
+    # return grid_search
 
 
 
 def random_forest_classifier(x_train, y_train):
-    # forest_classifier = ensemble.RandomForestClassifier(min_samples_split=4, max_depth=10, min_samples_leaf=5,
-    #                                                     criterion='gini', n_estimators=500, max_features='sqrt',
-    #                                                     random_state=42)
-    #
-    # forest_classifier = forest_classifier.fit(x_train, y_train)
-    #
-    # return forest_classifier
-    param_grid = {'min_samples_split': [2,5,10],
-                  'min_samples_leaf': [1,2,5],
-                  'max_depth': [5,10,15,20],
-                  }
+    forest_classifier = ensemble.RandomForestClassifier(min_samples_split=2, max_depth=14, min_samples_leaf=1,
+                                                        criterion='gini', n_estimators=500, max_features='sqrt',
+                                                        random_state=7)
 
-    forest_classifier = ensemble.RandomForestClassifierc(criterion="Gini", max_features="sqrt", n_estimators=100)
-    clf = RandomizedSearchCV(lr, params)
-    random_search = clf.fit(x_train, y_train)
-    best_model = random_search.best_estimator_
-    print(best_model)
-    return random_search
+    forest_classifier = forest_classifier.fit(x_train, y_train)
+
+    return forest_classifier
+    # param_grid = {'n_estimators': [50, 100, 150],
+    #         'max_depth': [10, 20, 5],
+    #         'min_samples_split': [2, 5, 10]
+    #     }
+    #
+    # forest_classifier = ensemble.RandomForestClassifier(criterion="gini", max_features='sqrt')
+    # clf = GridSearchCV(forest_classifier, param_grid, scoring="accuracy", cv=5, n_jobs=-1)
+    # grid_search = clf.fit(x_train, y_train)
+    # print("Best parameters:", grid_search.best_params_)
+    # print("Best cross-validation accuracy:", grid_search.best_score_)
+    # return grid_search
 
 
 def logistic_regression(x_train, y_train):
-    lr = LogisticRegression(max_iter=100, solver='liblinear', random_state=42, fit_intercept=True)
-    params = {'C': scipy.stats.uniform(loc=0, scale=4), 'penalty': ['l1', 'l2']}
-    clf = RandomizedSearchCV(lr, params)
-    random_search = clf.fit(x_train, y_train)
-    best_model = random_search.best_estimator_
-    print(best_model)
-    return random_search
-
+    lr = LogisticRegression(max_iter=100, solver='liblinear', random_state=7, fit_intercept=True, C=2.1, penalty='l1',intercept_scaling=1)
+    lr.fit(x_train, y_train)
+    return lr
+    #
+    # lr = LogisticRegression(max_iter=100, random_state=42)
+    # param_grid = {
+    #     'C': [0.01, 0.1, 0.2, 1, 10, 100],
+    #     'penalty': ['l1', 'l2', 'elasticnet'],
+    #     'solver': ['saga','liblinear']
+    # }
+    # clf = GridSearchCV(lr, param_grid,cv=5)
+    # grid_search = clf.fit(x_train, y_train)
+    # print("Best parameters:", grid_search.best_params_)
+    # print("Best cross-validation accuracy:", grid_search.best_score_)
+    # return grid_search
 
 def evaluate_model(model, x_train, x_test, y_train, y_test):
     y_test_pred = model.predict(x_test)
@@ -184,7 +213,7 @@ def get_attribute_label_encoder_mapping(df, attribute):
     return dict(zip(le.classes_, le.transform(le.classes_)))
 
 
-def normalize_dir(value):
+def normalize_values(value):
     if value > 2:
         return 0
     if 0 <= value <= 1:
@@ -196,6 +225,7 @@ def normalize_dir(value):
 def calc_metrics(x_test, y_test, y_predicted, attributes, target):
     attribute_metric = {}
     for attribute in attributes:
+        print("attribute:",attribute)
         min_classes = get_minority_classes(x_test[attribute])
         unprivileged_groups = [{attribute: v} for v in min_classes]
 
@@ -226,16 +256,39 @@ def calc_metrics(x_test, y_test, y_predicted, attributes, target):
 
         c_metric = ClassificationMetric(test_data_bld, classified_ds_bld, privileged_groups=privileged_groups,
                                         unprivileged_groups=unprivileged_groups)
-        normalized_dir = normalize_dir(c_metric.disparate_impact())
+        normalized_dir = normalize_values(c_metric.disparate_impact())
 
         dir = c_metric.disparate_impact()
         spd = c_metric.statistical_parity_difference()
 
+        eq_ods_diff = c_metric.equalized_odds_difference()
+        eq_opportunity_diff = c_metric.equal_opportunity_difference()
+
+        fnr = c_metric.false_negative_rate_ratio()
+
+        fpr = c_metric.false_positive_rate_ratio()
+        for_ =c_metric.false_omission_rate_ratio()
+        fdr = c_metric.false_discovery_rate_ratio()
+
+        print("---------- Metrics --------\n")
+
         print(f"Disparate Impact Ratio for {attribute}: %.3f" % dir)
-        if normalized_dir is not None:
-            print(f"Normalized Disparate Impact Ratio for {attribute}: %.3f" % normalized_dir)
+
         print(f"Statistical Parity Difference for {attribute}: %.3f" % spd)
-        attribute_metric[attribute] = [dir, normalized_dir, spd]
+        print(f"equalized opportunity difference for {attribute}: %.3f" % eq_opportunity_diff)
+
+        print(f"equalized ods difference for {attribute}: %.3f" % eq_ods_diff)
+
+        print(f" FNR ratio for {attribute}: %.3f" % fnr)
+        print(f" FNR privileged for {attribute}: %.3f" % c_metric.false_negative_rate())
+        print(f" FNR unpriv for {attribute}: %.3f" %  c_metric.false_negative_rate(privileged=False))
+
+        print(f" FPR ratio for {attribute}: %.3f" % fpr)
+        print(f" FOR ratio for {attribute}: %.3f" % for_)
+        print(f" FDR ratio for {attribute}: %.3f" % fdr)
+
+
+        attribute_metric[attribute] = [dir, spd,eq_opportunity_diff, eq_ods_diff, fnr, fpr, for_, fdr]
 
         print("\n")
 

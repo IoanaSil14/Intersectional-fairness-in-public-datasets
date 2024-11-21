@@ -27,6 +27,6 @@ def encode_and_scale(data, target):
     encode_categorical_attributes(df_numerical, categorical_attributes)
     scaler = MinMaxScaler()
     for col in df_numerical.columns:
-        if col not in categorical_attributes and col != target:
+        if col not in categorical_attributes and col != target and df_numerical[col].nunique()>10:
             df_numerical[col] = scaler.fit_transform(df_numerical[[col]])
     return df_numerical

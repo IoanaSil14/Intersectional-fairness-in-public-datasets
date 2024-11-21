@@ -4,6 +4,8 @@ from aequitas.flow.methods.preprocessing import massaging, label_flipping, data_
 from aequitas.flow.methods.postprocessing import group_threshold, balanced_group_threshold
 from fairlearn.metrics import MetricFrame
 from fairlearn.postprocessing import ThresholdOptimizer
+from aif360.algorithms.postprocessing import EqOddsPostprocessing
+from aif360.algorithms.inprocessing import GerryFairClassifier
 from fairlearn.metrics import (
     MetricFrame,
     true_positive_rate,
@@ -12,7 +14,7 @@ from fairlearn.metrics import (
     selection_rate,
     count,
 )
-from fairlearn.adversarial import AdversarialFairnessClassifier
+from sklearn import tree, ensemble
 
 from sklearn.metrics import balanced_accuracy_score, classification_report
 from helpers.training import *
@@ -74,7 +76,7 @@ def pre_process_label_flip(dataset, sensitive_attr, target_class):
     x_m = x_m.drop(columns=[sensitive_attr], axis=1)
 
     ps = label_flipping.LabelFlipping(
-        max_flip_rate=0.1, max_depth=3)
+        max_flip_rate=0.2)
     ps.fit(x_m, y_m, s_m)
     x_tr_ps, y_tr_ps, s_tr_ps = ps.transform(x_m, y_m, s_m)
     data_transformed = x_tr_ps.copy()
@@ -164,7 +166,7 @@ def train_with_fairlearn(data, attribute, model, metrics_dict, target):
     s_test = x_test[attribute]
     x_test = x_test.drop(columns=[attribute], axis=1)
 
-    fairlearn_clf = FairlearnClassifier(estimator=model, constraint="fairlearn.reductions.EqualizedOdds",
+    fairlearn_clf = FairlearnClassifier(estimator=model, constraint="fairlearn.reductions.ErrorRateParity",
                                         reduction='fairlearn.reductions.ExponentiatedGradient')
 
     fairlearn_clf.fit(x_train, y_train, s_train)
@@ -175,36 +177,66 @@ def train_with_fairlearn(data, attribute, model, metrics_dict, target):
     print(f"Accuracy score training:\n{accuracy_score(y_train, y_train_pred):.4f}")
     print(f"Accuracy score test:\n{accuracy_score(y_test, y_test_pred):.4f}")
     print(f"Classification report for model: {model} : \n {classification_report(y_test, y_test_pred)}")
-    metric = calc_metrics(x_test=x_test, y_test=y_test, y_predicted=y_test_pred, attributes=[attribute], target=target)
-    metrics_dict[model] = metric
+
     return x_test, y_test, y_test_pred, metrics_dict
+
+from aif360.datasets import StandardDataset
+def in_process_gerryfair(dataframe, target, protected_attributes, favourable_classes, train_size):
+    standard_df = StandardDataset(df=dataframe, label_name=target, favorable_classes=[1],
+                                                   protected_attribute_names=protected_attributes,
+                                                   privileged_classes=favourable_classes)
+
+    gerryfair_class = GerryFairClassifier(C=10, printflag=False, heatmapflag=False, heatmap_iter=10, heatmap_path='.', max_iters=10, gamma=0.01, fairness_def='FN')
+
+    train, test = standard_df.split([train_size])
+    test_df, _ = test.convert_to_dataframe()
+    train_df, _ = train.convert_to_dataframe()
+
+    gerryfair_class.fit(train, early_termination=True)
+    y_gf_predicted = gerryfair_class.predict(test)
+    test_pred, _ =  y_gf_predicted.convert_to_dataframe() #return the test data but as labels are the corrected predicitons
+
+    y_train = train_df.loc[:, target]
+    x_train = train_df.drop(target, axis=1)
+
+    y_test = test_df.loc[:, target]
+    x_test = test_df.drop(target, axis=1)
+
+    y_pred = test_pred.loc[:, target]
+    x_test_pred = test_pred.drop(target, axis=1)
+
+    for attr in protected_attributes:
+        x_test_pred[attr] = test_pred[attr].astype(int)
+
+    print(f"Accuracy score test:\n{accuracy_score(y_test, y_pred):.4f}")
+    return x_test, y_test, y_pred
 
 '''
 Group threshold
 '''
 
 
-def post_process_group_threshold_aequitas(data, attribute, target):
+def post_process_group_threshold_aequitas(data, attribute, target,list_of_disparities,priv):
     y = data.loc[:, target]
     x = data.drop(target, axis=1)
     x_train, x_test, y_train, y_test = train_test_split(x, y, test_size=0.20, random_state=0)
 
-    model = choose_model("RandomForest", x_train, y_train)
+    model = choose_model("Catboost", x_train, y_train)
     scores_train = model.predict_proba(x_train)[:, 1]
     scores_test = model.predict_proba(x_test)[:, 1]
     #print("prob scores", scores_test)
     scores_train = pd.Series(scores_train, index=x_train.index)
     scores_test = pd.Series(scores_test, index=x_test.index)
-    threshold = balanced_group_threshold.BalancedGroupThreshold(threshold_type="fpr", threshold_value=0.2,
+    threshold = balanced_group_threshold.BalancedGroupThreshold(threshold_type="tpr", threshold_value=0.6,
                                                                 fairness_metric="fpr")
     s_test = x_test[attribute]
     s_train = x_train[attribute]
     threshold.fit(X=x_train, y=y_train, y_hat=scores_train, s=s_train)
     corrected_scores = threshold.transform(x_test, scores_test, s_test)
     x_test[attribute] = s_test.copy()
-    calc_metrics(x_test, y_test, corrected_scores, [attribute], target)
+
     print(f"Accuracy score test corrected:\n{accuracy_score(y_test, corrected_scores):.4f}")
-    df_test_tr = calc_fairness_report(x_test, y_test, corrected_scores, target, [attribute], display_disp=True)
+    df_test_tr= calc_fairness_report(x_test, y_test, corrected_scores, target, [attribute], list_of_disparities,priv, display_disp=True)
     return df_test_tr
 
 
@@ -213,18 +245,18 @@ Group threshold: fairlearn
 '''
 
 
-def post_process_group_threshold_fairlearn(data, attributes, target):
+def post_process_group_threshold_fairlearn(data, attributes, target,list_of_disparities,priv):
     y = data.loc[:, target]
     x = data.drop(target, axis=1)
     x_train, x_test, y_train, y_test = train_test_split(x, y, test_size=0.20, random_state=0)
 
-    model = choose_model("RandomForest", x_train, y_train)
+    model = choose_model("Catboost", x_train, y_train)
     scores_test = model.predict_proba(x_test)[:, 1]
     s_test = x_test[attributes]
     s_train = x_train[attributes]
     threshold = ThresholdOptimizer(
         estimator=model,
-        constraints="false_negative_rate_parity",
+        constraints="equalized_odds",
         objective="balanced_accuracy_score",
         prefit=True,
         predict_method='predict_proba'
@@ -243,5 +275,57 @@ def post_process_group_threshold_fairlearn(data, attributes, target):
         sensitive_features=s_test
     )
     print(f"Accuracy score test corrected:\n{accuracy_score(y_test, y_pred_postprocess):.4f}")
-    df_test_tr = calc_fairness_report(x_test, y_test, y_pred_postprocess, target, attributes, display_disp=True)
+
+    df_test_tr = calc_fairness_report(x_test, y_test, y_pred_postprocess, target, attributes, list_of_disparities,priv, display_disp=True)
     return df_test_tr
+
+
+def post_process_eq_ods(data, attributes,target,list_of_disparities,priv):
+    y = data.loc[:, target]
+    x = data.drop(target, axis=1)
+    x_train, x_test, y_train, y_test = train_test_split(x, y, test_size=0.20, random_state=0)
+
+    model = choose_model("Catboost", x_train, y_train)
+    y_pred_test = model.predict(x_test)
+
+    bld_test = x_test.copy()
+    bld_test[target] = y_test
+    test_data_bld = BinaryLabelDataset(df=bld_test, label_names=[target],
+                                       protected_attribute_names=attributes,
+                                       favorable_label=1,
+                                       unfavorable_label=0)
+    bld_test_pred = x_test.copy()
+    bld_test_pred[target] = y_pred_test
+
+
+    test_data_bld_pred = BinaryLabelDataset(df=bld_test_pred, label_names=[target],
+                                       protected_attribute_names=attributes,
+                                       favorable_label=1,
+                                       unfavorable_label=0)
+
+    for attribute in attributes:
+        min_classes = get_minority_classes(x_test[attribute])
+        unprivileged_groups = [{attribute: v} for v in min_classes]
+
+        maj_classes = get_majority_classes(x_test[attribute])
+        if np.size(maj_classes) > 1:
+            privileged_groups = [{attribute: maj_classes[0]}]
+            maj_classes.remove(maj_classes[0])  #keep only one maj class
+            unprivileged_groups = unprivileged_groups + [{attribute: v} for v in maj_classes]
+        else:
+            privileged_groups = [{attribute: v} for v in maj_classes]
+
+        print("Privileged groups: ", privileged_groups)
+        print("Unprivileged groups: ", unprivileged_groups)
+
+
+        eq_ods_post_process = EqOddsPostprocessing(unprivileged_groups, privileged_groups)
+        scores_modified = eq_ods_post_process.fit_predict(test_data_bld, test_data_bld_pred)
+        print(f"Accuracy score test corrected:\n{accuracy_score(y_test, scores_modified.labels):.4f}")
+        # metrics = calc_metrics(x_test=x_test, y_test=y_test, y_predicted= scores_modified.labels, attributes=attributes,
+        #              target=target)
+        # calc_avrg(metrics)
+        df_test_eq = calc_fairness_report(x_test, y_test, scores_modified.labels, target, attributes,list_of_disparities,priv, display_disp=True)
+        return df_test_eq
+
+
