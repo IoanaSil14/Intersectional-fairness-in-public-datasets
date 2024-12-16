@@ -1,9 +1,10 @@
 import pandas as pd
 from aequitas.flow.methods.inprocessing import FairlearnClassifier
-from aequitas.flow.methods.preprocessing import massaging, label_flipping, data_repairer
+from aequitas.flow.methods.preprocessing import massaging, label_flipping, data_repairer, prevalence_sample
 from aequitas.flow.methods.postprocessing import group_threshold, balanced_group_threshold
 from fairlearn.metrics import MetricFrame
 from fairlearn.postprocessing import ThresholdOptimizer
+from aif360.datasets import StandardDataset
 from aif360.algorithms.postprocessing import EqOddsPostprocessing
 from aif360.algorithms.inprocessing import GerryFairClassifier
 from fairlearn.metrics import (
@@ -17,19 +18,17 @@ from fairlearn.metrics import (
 from sklearn import tree, ensemble
 
 from sklearn.metrics import balanced_accuracy_score, classification_report
-from helpers.training import *
+from helpers.training_methods import *
 from helpers.aequitas_methods import calc_fairness_report
+
 
 '''
 Messaging
 '''
-
-
 def prep_massaging(df, protected_attributes, target):
     data_to_transform = df.copy()
     for attr in protected_attributes:
         data_transformed_mess = pre_process_massaging(data_to_transform, attr, target)
-        data_transformed_mess[attr] = data_transformed_mess[attr].astype(int)
         data_to_transform = data_transformed_mess.copy()
     return data_to_transform
 
@@ -41,20 +40,18 @@ def pre_process_massaging(dataset, sensitive_attr, target_class):
     s_m = s_m.astype("category")
     x_m = x_m.drop(columns=[sensitive_attr], axis=1)
 
-    ps = massaging.Massaging()
-    ps.fit(x_m, y_m, s_m)
-    x_tr_ps, y_tr_ps, s_tr_ps = ps.transform(x_m, y_m, s_m)
-    data_transformed = x_tr_ps.copy()
-    data_transformed[sensitive_attr] = s_tr_ps.copy()
-    data_transformed[target_class] = y_tr_ps.copy()
+    ms = massaging.Massaging()
+    ms.fit(x_m, y_m, s_m)
+    x_tr_ms, y_tr_ms, s_tr_ms = ms.transform(x_m, y_m, s_m)
+    data_transformed = x_tr_ms.copy()
+    data_transformed[sensitive_attr] = s_tr_ms.copy()
+    data_transformed[target_class] = y_tr_ms.copy()
     return data_transformed
 
 
 '''
 Label flipping
 '''
-
-
 def prep_label_flipping(df, proetcted_attributes, target):
     # transform data
     data_to_transform = df.copy()
@@ -63,45 +60,40 @@ def prep_label_flipping(df, proetcted_attributes, target):
 
     for attr in proetcted_attributes:
         data_transformed_lf = pre_process_label_flip(data_to_transform, attr, target)
-        data_transformed_lf[attr] = data_transformed_lf[attr].astype(int)
         data_to_transform = data_transformed_lf.copy()
     return data_to_transform
 
-
 def pre_process_label_flip(dataset, sensitive_attr, target_class):
-    y_m = dataset.loc[:, target_class]
-    x_m = dataset.drop(columns=[target_class], axis=1)
-    s_m = x_m[sensitive_attr]
-    s_m = s_m.astype("category")
-    x_m = x_m.drop(columns=[sensitive_attr], axis=1)
+    y_lf = dataset.loc[:, target_class]
+    x_lf = dataset.drop(columns=[target_class], axis=1)
+    s_lf = x_lf[sensitive_attr]
+    s_lf = s_lf.astype("category")
+    x_lf = x_lf.drop(columns=[sensitive_attr], axis=1)
 
-    ps = label_flipping.LabelFlipping(
+    lf = label_flipping.LabelFlipping(
         max_flip_rate=0.2)
-    ps.fit(x_m, y_m, s_m)
-    x_tr_ps, y_tr_ps, s_tr_ps = ps.transform(x_m, y_m, s_m)
-    data_transformed = x_tr_ps.copy()
-    data_transformed[sensitive_attr] = s_tr_ps.copy()
-    data_transformed[target_class] = y_tr_ps.copy()
+    lf.fit(x_lf, y_lf, s_lf)
+    x_tr_lf, y_tr_lf, s_tr_lf = lf.transform(x_lf, y_lf, s_lf)
+    data_transformed = x_tr_lf.copy()
+    data_transformed[sensitive_attr] = s_tr_lf.copy()
+    data_transformed[target_class] = y_tr_lf.copy()
     return data_transformed
 
 
-from aequitas.flow.methods.preprocessing import prevalence_sample
 
 '''
 Prevelance sampling 
 '''
 
-
 def prep_prev_sampling(df, protected_attributes, target):
     data_to_transform = df.copy()
     for attr in protected_attributes:
         data_transformed_ps = pre_process_prev_sampling(data_to_transform, attr, target)
-        data_transformed_ps[attr] = data_transformed_ps[attr].astype(int)
         data_to_transform = data_transformed_ps.copy()
     return data_to_transform
 
 
-def pre_process_prev_sampling(dataset, sensitive_attr, target_class, strategy="undersample"):
+def pre_process_prev_sampling(dataset, sensitive_attr, target_class, strategy="oversample"):
     y_ps = dataset.loc[:, target_class]
     x_ps = dataset.drop(columns=[target_class], axis=1)
     s_ps = x_ps[sensitive_attr]
@@ -121,7 +113,6 @@ def pre_process_prev_sampling(dataset, sensitive_attr, target_class, strategy="u
 Data repairer
 '''
 
-
 def prep_data_repairer(df, protected_attributes, target):
     data_to_transform = df.copy()
     columns_to_change = df.columns.difference(protected_attributes).tolist()
@@ -132,7 +123,6 @@ def prep_data_repairer(df, protected_attributes, target):
         data_transformed_dr[attr] = data_transformed_dr[attr].astype(int)
         data_to_transform = data_transformed_dr.copy()
     return data_to_transform
-
 
 def pre_process_data_repairer(dataset, sensitive_attr, target_class, columns_to_change):
     y_r = dataset.loc[:, target_class]
@@ -155,8 +145,6 @@ def pre_process_data_repairer(dataset, sensitive_attr, target_class, columns_to_
 '''
 Fairlearn classifier 
 '''
-
-
 def train_with_fairlearn(data, attribute, model, metrics_dict, target):
     y = data.loc[:, target]
     x = data.drop(target, axis=1)
@@ -166,7 +154,7 @@ def train_with_fairlearn(data, attribute, model, metrics_dict, target):
     s_test = x_test[attribute]
     x_test = x_test.drop(columns=[attribute], axis=1)
 
-    fairlearn_clf = FairlearnClassifier(estimator=model, constraint="fairlearn.reductions.ErrorRateParity",
+    fairlearn_clf = FairlearnClassifier(estimator=model, constraint="fairlearn.reductions.EqualizedOdds",
                                         reduction='fairlearn.reductions.ExponentiatedGradient')
 
     fairlearn_clf.fit(x_train, y_train, s_train)
@@ -180,7 +168,9 @@ def train_with_fairlearn(data, attribute, model, metrics_dict, target):
 
     return x_test, y_test, y_test_pred, metrics_dict
 
-from aif360.datasets import StandardDataset
+"""
+Gerry fair
+"""
 def in_process_gerryfair(dataframe, target, protected_attributes, favourable_classes, train_size):
     standard_df = StandardDataset(df=dataframe, label_name=target, favorable_classes=[1],
                                                    protected_attribute_names=protected_attributes,
@@ -214,20 +204,19 @@ def in_process_gerryfair(dataframe, target, protected_attributes, favourable_cla
 '''
 Group threshold
 '''
-
-
-def post_process_group_threshold_aequitas(data, attribute, target,list_of_disparities,priv):
+def post_process_group_threshold_aequitas(data, attribute, target,list_of_disparities,priv,model,columns_to_encode=[]):
+    print(priv)
     y = data.loc[:, target]
     x = data.drop(target, axis=1)
     x_train, x_test, y_train, y_test = train_test_split(x, y, test_size=0.20, random_state=0)
 
-    model = choose_model("Catboost", x_train, y_train)
+    model = choose_model(model, x_train, y_train,columns_to_encode)
     scores_train = model.predict_proba(x_train)[:, 1]
     scores_test = model.predict_proba(x_test)[:, 1]
     #print("prob scores", scores_test)
     scores_train = pd.Series(scores_train, index=x_train.index)
     scores_test = pd.Series(scores_test, index=x_test.index)
-    threshold = balanced_group_threshold.BalancedGroupThreshold(threshold_type="tpr", threshold_value=0.6,
+    threshold = balanced_group_threshold.BalancedGroupThreshold(threshold_type="fpr", threshold_value=0.6,
                                                                 fairness_metric="fpr")
     s_test = x_test[attribute]
     s_train = x_train[attribute]
@@ -243,20 +232,18 @@ def post_process_group_threshold_aequitas(data, attribute, target,list_of_dispar
 '''
 Group threshold: fairlearn
 '''
-
-
-def post_process_group_threshold_fairlearn(data, attributes, target,list_of_disparities,priv):
+def post_process_group_threshold_fairlearn(data, attributes, target,list_of_disparities,priv,model,to_encode):
     y = data.loc[:, target]
     x = data.drop(target, axis=1)
     x_train, x_test, y_train, y_test = train_test_split(x, y, test_size=0.20, random_state=0)
 
-    model = choose_model("Catboost", x_train, y_train)
+    model = choose_model(model, x_train, y_train,to_encode)
     scores_test = model.predict_proba(x_test)[:, 1]
     s_test = x_test[attributes]
     s_train = x_train[attributes]
     threshold = ThresholdOptimizer(
         estimator=model,
-        constraints="equalized_odds",
+        constraints="false_negative_rate_parity",
         objective="balanced_accuracy_score",
         prefit=True,
         predict_method='predict_proba'
@@ -280,12 +267,11 @@ def post_process_group_threshold_fairlearn(data, attributes, target,list_of_disp
     return df_test_tr
 
 
-def post_process_eq_ods(data, attributes,target,list_of_disparities,priv):
+def post_process_eq_ods(data, attributes,target,list_of_disparities,priv, model,to_encode):
     y = data.loc[:, target]
     x = data.drop(target, axis=1)
     x_train, x_test, y_train, y_test = train_test_split(x, y, test_size=0.20, random_state=0)
-
-    model = choose_model("Catboost", x_train, y_train)
+    model = choose_model(model, x_train, y_train,[])
     y_pred_test = model.predict(x_test)
 
     bld_test = x_test.copy()

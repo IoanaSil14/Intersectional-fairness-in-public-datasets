@@ -2,8 +2,11 @@ import numpy as np
 import openml
 from sklearn.preprocessing import MinMaxScaler
 
-from helpers.preprocessing import get_categorical_attributes, encode_categorical_attributes
-
+from helpers.preprocessing_methods import *
+"""
+Preparation class for ACS income to reduce the memory usage on jupyter notebook.
+- does small preprocessing for the dataset.
+"""
 
 def initial_dataset_preprocess():
     ml_ds = openml.datasets.get_dataset(43141)
@@ -14,10 +17,8 @@ def initial_dataset_preprocess():
 
     df["age"] = df["age"].apply(categorize_age)
     df['race'] = np.where(df['race'] == 1, 1, 2)
-
     group_mapping = {1: 1, 2: 2, 3: 2, 4: 2, 5: 3}
     df['marital status'] = df['marital status'].replace(group_mapping)
-
     return df
 
 

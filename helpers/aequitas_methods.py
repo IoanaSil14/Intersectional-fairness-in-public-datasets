@@ -3,21 +3,19 @@ from aequitas.group import Group
 from aequitas.bias import Bias
 from aequitas.fairness import Fairness
 import aequitas.plot as ap
-from helpers.training import get_majority_classes, get_minority_classes
+from helpers.training_methods import get_majority_classes, get_minority_classes
 from IPython.display import display
 
 from aequitas.plotting import Plot
 from matplotlib import pyplot as plt
 import numpy as np
-"""
-Calculates the confusion matrix for each defined group in "attr_cols" and
-the statistical metrics per group.
-"""
 
+"""
+Return the most priv group and unpriviliged groups within a sensitive attribute.
+"""
 def get_priv_and_unpriv_groups(protected_attribute,data):
     priv_groups = {}
     unpriv_groups = {}
-
     for attribute in protected_attribute:
         min_classes = get_minority_classes(data[attribute])
         unprivileged_groups = [ v for v in min_classes]
@@ -25,15 +23,19 @@ def get_priv_and_unpriv_groups(protected_attribute,data):
         maj_classes = get_majority_classes(data[attribute])
         if np.size(maj_classes) > 1:
             privileged_groups = [maj_classes[0]]
-            maj_classes.remove(maj_classes[0])  # keep only one maj class
+            maj_classes.remove(maj_classes[0])  # keep only one maj class/priv group
             unprivileged_groups = unprivileged_groups + [ v for v in maj_classes]
         else:
             privileged_groups = [v for v in maj_classes]
-
         priv_groups.update({attribute: privileged_groups})
         unpriv_groups.update({attribute: unprivileged_groups})
 
     return priv_groups, unpriv_groups
+
+"""
+Calculates the confusion matrix for each defined group in "attr_cols" and
+the statistical metrics per group.
+"""
 
 def init_group_and_get_metrics(df, attr_cols):
     g = Group()
@@ -41,7 +43,6 @@ def init_group_and_get_metrics(df, attr_cols):
     #print(xtab)
     # get the metrics
     absolute_metrics = g.list_absolute_metrics(xtab)
-
     return xtab, absolute_metrics
 
 
@@ -49,8 +50,6 @@ def init_group_and_get_metrics(df, attr_cols):
 Calculates the disparities between a reference group {ref_gorup_dict} and every other group
 from the method init_group_and_plot_metrics
 """
-
-
 def init_bias_and_print_metrics(xtab, df_no_features, dict):
     b = Bias()
     ## calculate disparities
@@ -59,15 +58,12 @@ def init_bias_and_print_metrics(xtab, df_no_features, dict):
                                             alpha=0.05, check_significance=True,
                                             mask_significance=True)
     print(b.list_significance(df_no_features))
-
     return b, bdf
 
 
 """
 Calculates the fairness based on the disparities.
 """
-
-
 def init_fairness_and_print_results(bdf):
     f = Fairness()
     fdf = f.get_group_value_fairness(bdf)
@@ -85,7 +81,10 @@ def plot_disparities(bdf, metrics, attribute, disparity_tolerance):
 
 def calc_fairness_report(xt, yt, y_pred, target_class, sensitive_attributes, list_of_disparities, priv,display_disp=False):
     df_test = xt.copy()
-    y_test_df = yt.to_frame()
+    if isinstance(yt, pd.DataFrame):
+        y_test_df = yt.copy()
+    else:
+        y_test_df = yt.to_frame()
     df_test['label_value'] = y_test_df[target_class]
     df_test['score'] = y_pred
 
@@ -113,6 +112,7 @@ def calc_fairness_report(xt, yt, y_pred, target_class, sensitive_attributes, lis
                   b.list_disparities(bdf)].round(2))
     disparities_pd = pd.DataFrame(bdf[['attribute_name', 'attribute_value'] +
                   b.list_disparities(bdf) + b.list_significance(bdf)].round(2))
+
     avg_disparities = calculate_averages_for_disparities(disparity_df=disparities_pd,list_of_disparities=list_of_disparities, protected_attributes=sensitive_attributes,priv=priv)
     for disparity in list_of_disparities:
         print(f"Overall average for {disparity}:  %.3f" % (avg_disparities[disparity].mean()))
@@ -122,16 +122,19 @@ def calc_fairness_report(xt, yt, y_pred, target_class, sensitive_attributes, lis
     gaf, fdf, overall_fairness = init_fairness_and_print_results(bdf)
     if display_disp:
         aqp = Plot()
-        fg = aqp.plot_fairness_group_all(fdf, ncols=5, metrics="all")
-    display(gaf)
-
+        fg = aqp.plot_fairness_group_all(fdf, ncols=5, metrics="all") # plot all metrics
+        #fg = aqp.plot_fairness_group(fdf, group_metric="fnr") # alternative to plotting only one metric
 
     return df_test_no_features
 
 
+"""
+Calculates the average for the selected disparities.
+"""
 def calculate_averages_for_disparities(disparity_df,list_of_disparities,protected_attributes,priv):
 
     averages = {}
+    print(priv.keys())
     protected_attributes = list(priv.keys())
     for attr in protected_attributes:
         # Filter data for the current attribute
@@ -142,11 +145,8 @@ def calculate_averages_for_disparities(disparity_df,list_of_disparities,protecte
 
         # Handle each metric
         for disparity in list_of_disparities:
-
-
             # Calculate average for the metric
             metric_avg = filtered_data[disparity].mean()
-
             # Store results in a dictionary
             if disparity not in averages:
                 averages[disparity] = {}
